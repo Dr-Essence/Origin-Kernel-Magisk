@@ -83,6 +83,7 @@ jobs:
               debugfs -R "rdump / raw_$part" $part.img
             fi
             mkdir -p ref/$part
+            find raw_$part -name '*.ko' | head -3
             find raw_$part -name '*.ko' -exec cp {} ref/$part/ \;
             echo "$part: $(ls ref/$part | wc -l) modules"
           done
@@ -101,16 +102,18 @@ jobs:
           cp ../magisk/stock-gki-signing.pem certs/stock-gki-signing.pem
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
           scripts/kconfig/merge_config.sh -m .config ../magisk/magisk.config
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
-          grep -E "^CONFIG_(KSU|BBG|SYSTEM_TRUSTED_KEYS|LSM|MODULE_SIG_PROTECT|MODVERSIONS)=|^# CONFIG_(KSU|BBG) " .config
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 LOCALVERSION= BUILD_NUMBER=15242664 olddefconfig
+          grep -E "^CONFIG_(KSU|BBG|SYSTEM_TRUSTED_KEYS|LSM|MODULE_SIG_PROTECT|MODVERSIONS|LOCALVERSION)=|^# CONFIG_(KSU|BBG|LOCALVERSION_AUTO) " .config
 
       - name: Build
         run: |
           cd src
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee ../build.log | tail -40
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 LOCALVERSION= BUILD_NUMBER=15242664 -j$(nproc) 2>&1 \
+            | tee ../build.log | tail -40
           test -f arch/arm64/boot/Image
-          python3 ../magisk/stock.py check-image arch/arm64/boot/Image 6.1.162-android14-11
+          test "$(cat include/config/kernel.release)" = "$STOCK_RELEASE"
+          python3 ../magisk/stock.py check-image arch/arm64/boot/Image "$STOCK_RELEASE"
 
       - name: Check against the stock modules and configuration
         run: |
