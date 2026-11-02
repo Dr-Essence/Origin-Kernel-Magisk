@@ -1,0 +1,168 @@
+name: Tetris Magisk kernel
+
+# Origin Kernel's Tetris-v1 (CMF Phone 1, Nothing OS B4.1-260615-1652) without KernelSU/SUSFS
+# and Baseband-Guard, for phones rooted with Magisk. Built, then checked against the phone's
+# own stock images (module CRCs, vermagic, module protection, signatures, configuration), booted
+# in QEMU, and packed into the stock boot.img. Nothing is published if any check fails.
+
+on:
+  push:
+    branches: [tetris-magisk]
+    paths: ['magisk/**', '.github/workflows/tetris-magisk.yml']
+  workflow_dispatch:
+
+env:
+  ORIGIN_REPO: https://github.com/samakshkambxj/origin-kernel
+  ORIGIN_TAG: Tetris-v1
+  STOCK_BUILD: Tetris_B4.1-260615-1652
+  STOCK_URL: https://github.com/spike0en/nothing_archive/releases/download/Tetris_B4.1-260615-1652
+  STOCK_RELEASE: 6.1.162-android14-11-g65896c4edca1-ab15242664
+  STOCK_BOOT_SHA256: c670a25cbf25d455aa3ed06be736e05e30e9986f3951ef62e53aeb39398ab289
+  STOCK_VENDOR_BOOT_SHA256: 9e55fe1a7eb64ef3cf0fc802180c4d260b4a9d53ad5b2f59847343d581c68b44
+  CLANG_URL: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r487747c.tgz
+  MAGISK_URL: https://github.com/topjohnwu/Magisk/releases/download/v28.1/Magisk-v28.1.apk
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev cpio dwarves lz4 \
+            p7zip-full erofs-utils e2fsprogs qemu-system-arm gcc-aarch64-linux-gnu unzip
+          pip3 install --break-system-packages lz4
+
+      - name: Origin source (Tetris-v1)
+        run: |
+          git clone --depth 1 --branch "$ORIGIN_TAG" "$ORIGIN_REPO" src
+          cd src
+          git submodule update --init --depth 1 KernelSU-Next Baseband-guard \
+            || git submodule update --init KernelSU-Next Baseband-guard
+          git log --oneline -1
+          head -5 Makefile
+
+      - name: Stock images of the phone's build
+        run: |
+          mkdir -p stock && cd stock
+          curl -fsSL -o boot.7z "$STOCK_URL/$STOCK_BUILD-image-boot.7z"
+          7z x -y boot.7z boot.img vendor_boot.img init_boot.img > /dev/null
+          echo "$STOCK_BOOT_SHA256  boot.img" | sha256sum -c
+          echo "$STOCK_VENDOR_BOOT_SHA256  vendor_boot.img" | sha256sum -c
+          python3 ../magisk/stock.py boot boot.img ref
+          python3 ../magisk/stock.py check-image ref/Image "$STOCK_RELEASE"
+          python3 ../magisk/stock.py vendor-boot vendor_boot.img ref/vendor_boot
+          openssl x509 -in ../magisk/stock-gki-signing.pem -outform DER -out ref/stock-cert.der
+          # The stock kernel's own certificate must be the one in the repository.
+          python3 - <<'EOF'
+          data = open("ref/Image", "rb").read()
+          assert open("ref/stock-cert.der", "rb").read() in data, "certificate not in stock kernel"
+          print("stock certificate found in the stock kernel")
+          EOF
+
+      - name: Stock vendor_dlkm and system_dlkm
+        run: |
+          cd stock
+          curl -fsSL -o logical.7z.001 "$STOCK_URL/$STOCK_BUILD-image-logical.7z.001"
+          curl -fsSL -o logical.7z.002 "$STOCK_URL/$STOCK_BUILD-image-logical.7z.002"
+          7z l logical.7z.001 | tail -20
+          7z x -y logical.7z.001 vendor_dlkm.img system_dlkm.img > /dev/null
+          rm -f logical.7z.00*
+          for part in vendor_dlkm system_dlkm; do
+            file $part.img
+            mkdir -p raw_$part
+            if fsck.erofs --extract=raw_$part $part.img 2>/dev/null; then :; else
+              debugfs -R "rdump / raw_$part" $part.img
+            fi
+            mkdir -p ref/$part
+            find raw_$part -name '*.ko' -exec cp {} ref/$part/ \;
+            echo "$part: $(ls ref/$part | wc -l) modules"
+          done
+          df -h /
+
+      - name: Toolchain (Android clang r487747c, as the stock kernel)
+        run: |
+          mkdir -p clang && cd clang
+          curl -fsSL "$CLANG_URL" | tar xz
+          ./bin/clang --version | head -1
+
+      - name: Configure
+        run: |
+          cd src
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          cp ../magisk/stock-gki-signing.pem certs/stock-gki-signing.pem
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+          scripts/kconfig/merge_config.sh -m .config ../magisk/magisk.config
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -E "^CONFIG_(KSU|BBG|SYSTEM_TRUSTED_KEYS|LSM|MODULE_SIG_PROTECT|MODVERSIONS)=|^# CONFIG_(KSU|BBG) " .config
+
+      - name: Build
+        run: |
+          cd src
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee ../build.log | tail -40
+          test -f arch/arm64/boot/Image
+          python3 ../magisk/stock.py check-image arch/arm64/boot/Image 6.1.162-android14-11
+
+      - name: Check against the stock modules and configuration
+        run: |
+          python3 magisk/check.py src stock/ref report.txt
+
+      - name: Boot test (QEMU arm64, 8 CPUs)
+        run: |
+          mkdir -p initramfs
+          aarch64-linux-gnu-gcc -static -O2 -o initramfs/init magisk/init.c
+          mkdir -p initramfs/proc initramfs/sys initramfs/dev
+          (cd initramfs && find . | cpio -o -H newc | gzip > ../initramfs.cpio.gz)
+          timeout 900 qemu-system-aarch64 -M virt,gic-version=3 -cpu max -smp 8 -m 3072 \
+            -nographic -no-reboot -kernel src/arch/arm64/boot/Image -initrd initramfs.cpio.gz \
+            -append "console=ttyAMA0 earlycon rdinit=/init panic=-1" | tee qemu.log | tail -60
+          grep -q "NLP-BOOT-OK" qemu.log
+          if grep -E "Kernel panic|Unable to handle kernel|BUG:|Oops" qemu.log; then exit 1; fi
+          { echo; echo "QEMU boot test:"; grep "^NLP" qemu.log; } >> report.txt
+
+      - name: Pack into the stock boot.img
+        run: |
+          mkdir -p tools pack check
+          curl -fsSL -o magisk.apk "$MAGISK_URL"
+          unzip -p magisk.apk lib/x86_64/libmagiskboot.so > tools/magiskboot
+          chmod +x tools/magiskboot
+          cd pack
+          ../tools/magiskboot unpack ../stock/boot.img
+          cp ../src/arch/arm64/boot/Image kernel
+          ../tools/magiskboot repack ../stock/boot.img ../new-boot.img
+          cd ../check
+          ../tools/magiskboot unpack ../new-boot.img
+          cmp kernel ../src/arch/arm64/boot/Image
+          cd ..
+          ls -l stock/boot.img new-boot.img
+          {
+            echo; echo "boot image:"
+            echo "stock boot.img $(stat -c %s stock/boot.img) bytes, new-boot.img $(stat -c %s new-boot.img) bytes"
+            echo "kernel inside new-boot.img is byte-identical to the built Image"
+            sha256sum new-boot.img src/arch/arm64/boot/Image
+          } >> report.txt
+
+      - name: Results
+        if: always()
+        run: |
+          mkdir -p out
+          cp -f report.txt qemu.log build.log out/ 2>/dev/null || true
+          cp -f new-boot.img out/ 2>/dev/null || true
+          cp -f src/arch/arm64/boot/Image out/ 2>/dev/null || true
+          cp -f src/.config out/kernel.config 2>/dev/null || true
+          cat report.txt 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tetris-magisk-kernel
+          path: out/
