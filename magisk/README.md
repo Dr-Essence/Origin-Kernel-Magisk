@@ -22,7 +22,9 @@ The official images of the exact phone build (from
 1. **Module CRCs**: every symbol imported by every stock module (vendor_boot, vendor_dlkm,
    system_dlkm) exists in the new kernel with the same CRC.
 2. **vermagic** matches past the release string.
-3. **Module protection**: unsigned stock modules only use what unsigned modules may use.
+3. **Module protection**: the new kernel's lists of protected exports and of symbols unsigned
+   modules may use are identical to the stock kernel's (read out of the stock kernel itself), so
+   every module is treated exactly as on the phone today.
 4. **Signatures**: the signed stock modules verify with the stock certificate, which the new
    kernel trusts.
 5. **Configuration**: the ABI- and boot-relevant options equal the stock kernel's.

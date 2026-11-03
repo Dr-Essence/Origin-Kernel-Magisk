@@ -26,6 +26,8 @@ import subprocess
 import sys
 import tempfile
 
+import gki_tables
+
 SIG_MAGIC = b"~Module signature appended~\n"
 
 
@@ -122,7 +124,8 @@ def load_modules(folder):
                     elf = Elf(data)
                 except ValueError:
                     continue
-                mods[path] = dict(name=f, elf=elf, data=data, signed=signed(data),
+                mods[path] = dict(name="%s/%s" % (os.path.basename(folder.rstrip("/")), f),
+                                  elf=elf, data=data, signed=signed(data),
                                   versions=versions(elf), exports=exports(elf),
                                   vermagic=modinfo(elf).get("vermagic", ""))
     return mods
@@ -233,7 +236,12 @@ def check_vermagic(rep, stock, build_dir):
         rep.ok("vermagic: '%s' matches every stock module past the release string" % ours)
 
 
-def check_protection(rep, stock, build_dir):
+def check_protection(rep, stock, build_dir, stock_image):
+    """
+    The kernel lets an unsigned module use only "unprotected" symbols of signed modules and
+    export no "protected" symbol (kernel/module/main.c). If the new kernel's two lists are the
+    stock kernel's, every module is treated exactly as on the phone today.
+    """
     gen = os.path.join(build_dir, "include", "generated")
     unprotected = load_header_list(os.path.join(gen, "gki_module_unprotected.h"))
     protected = load_header_list(os.path.join(gen, "gki_module_protected_exports.h"))
@@ -242,6 +250,22 @@ def check_protection(rep, stock, build_dir):
         return
     rep.info("protection lists: %d unprotected symbols, %d protected exports"
              % (len(unprotected), len(protected)))
+    for label, ours in (("protected exports", protected), ("unprotected symbols", unprotected)):
+        names = sorted(ours)
+        found = []
+        for probe in (names[len(names) // 2], names[len(names) // 3], names[2 * len(names) // 3]):
+            found += [set(t) for t in gki_tables.tables(stock_image, probe).values() if len(t) > 32]
+        # Both tables share many names: take the one that differs least.
+        theirs = min(found, key=lambda f: len(f ^ ours)) if found else None
+        if theirs is None:
+            rep.fail("%s: table not found in the stock kernel" % label)
+        elif theirs != ours:
+            rep.fail("%s: differ from the stock kernel's (%d only new, %d only stock)"
+                     % (label, len(ours - theirs), len(theirs - ours)))
+            rep.info("only new: " + " ".join(sorted(ours - theirs)[:40]))
+            rep.info("only stock: " + " ".join(sorted(theirs - ours)[:40]))
+        else:
+            rep.ok("%s: identical to the stock kernel's %d" % (label, len(theirs)))
     stock_exports = set()
     for m in stock.values():
         stock_exports |= m["exports"]
@@ -257,12 +281,11 @@ def check_protection(rep, stock, build_dir):
         for sym in m["exports"]:
             if sym in protected:
                 problems.append("%s (unsigned) exports protected %s" % (m["name"], sym))
-    if problems:
-        rep.fail("module protection: %d problems" % len(problems))
-        for p in problems[:100]:
-            rep.info(p)
-    else:
-        rep.ok("module protection: every unsigned stock module stays within what it may use")
+    # With the lists identical to stock, these modules fare as they do on stock (an unsigned copy
+    # of a module whose signed copy loads first is simply not loaded again).
+    rep.info("unsigned stock modules outside the lists (same as on stock): %d" % len(problems))
+    for p in problems[:20]:
+        rep.info(p)
 
 
 def check_signatures(rep, stock, cert_der, build_dir):
@@ -368,7 +391,7 @@ def main():
     check_config(rep, build_dir, os.path.join(stock_dir, "stock.config"))
     check_crcs(rep, stock, symvers)
     check_vermagic(rep, stock, build_dir)
-    check_protection(rep, stock, build_dir)
+    check_protection(rep, stock, build_dir, os.path.join(stock_dir, "Image"))
     check_signatures(rep, stock, os.path.join(stock_dir, "stock-cert.der"), build_dir)
     text = "\n".join(rep.lines) + "\n\n%s: %d failed check(s)\n" % (
         "FAILED" if rep.failures else "ALL CHECKS PASSED", rep.failures)
