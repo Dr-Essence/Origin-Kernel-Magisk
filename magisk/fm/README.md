@@ -117,6 +117,7 @@ Changes from AOSP, each for a reason found here:
 | no location, mount or phone-state permissions | not needed; the location check before a scan is skipped instead of crashing |
 | FM without wired earphones | the 2016 app refused to switch on unless `isWiredHeadsetOn()`; the receiver hears stations without them (fmscan), and a USB DAC is not a wired headset. Wired earphones now select the long antenna input and taking them out the short one (`FM_IOCTL_ANA_SWITCH`, which the 2016 app never actually called); taking them out still stops playback, as Android apps do |
 | `HiddenApiBypass` | the app uses hidden audio APIs (AudioPatch, AudioSystem); AOSP built it with the platform key |
+| built-in settings when `libfmcust.so` is missing | Nothing removed MediaTek's settings library with the app; the 2016 library then failed its own start (`FMR_init`), `JNI_OnLoad` returned `JNI_ERR` and the app crashed on start (0.1, on the phone). The defaults are the phone's: chip 0x6631, 87.5-108 MHz, 100 kHz steps, short antenna input supported, and an empty "fake channel" list (the code reads it without checking) |
 | logging through `android/log.h` | builds with the NDK instead of AOSP's `libcutils` |
 
 The module adds:
@@ -129,6 +130,8 @@ The module adds:
 - `sepolicy.rule`: `priv_app` may open, read, write and ioctl `fm_device`, nothing else;
 - `service.sh`: loads the FM driver after boot and grants the runtime permissions the 2016 code
   never asks for (recording audio, storage, notifications). Its log: `/data/adb/modules/cmf_fm_radio/fm.log`.
+  `pm` writes to `/dev/null`: in 0.1 its output went to that log, Android's package service may
+  not write to a file in `/data/adb`, and every grant failed ("Failed transaction").
 
 It refuses to install on another phone, or without the FM vendor_boot.
 

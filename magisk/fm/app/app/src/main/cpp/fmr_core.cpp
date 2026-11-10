@@ -60,6 +60,26 @@ int FMR_get_cfgs(int idx)
     if (FMR_cust_hdler(idx) == NULL) {
         LOGE("%s failed, %s\n", __FUNCTION__, dlerror());
         //FMR_seterr(ERR_LD_LIB);
+        /* CMF Phone 1 build: Nothing removed MediaTek's libfmcust.so with the app, and without
+         * a configuration FMR_init() failed, so JNI_OnLoad returned JNI_ERR and the app crashed
+         * on start (UnsatisfiedLinkError, seen on the phone). These are the values the phone's
+         * own driver and chip use: chip 0x6631 (FM_IOCTL_GETCHIPID, fmscan), the 87.5-108 MHz
+         * band in 100 kHz units, as the library passes them on (the driver converts, see
+         * fm_get_channel_space), 100 kHz steps, MediaTek's default seek level, and the short
+         * antenna input, which the driver has (FM_IOCTL_ANA_SWITCH). */
+        static struct fm_fake_channel_t no_fake_channels = { 0, NULL };
+        pfmr_data[idx]->cfg_data.chip = 0x6631;
+        pfmr_data[idx]->cfg_data.band = FM_BAND_UE;
+        pfmr_data[idx]->cfg_data.low_band = FM_UE_FREQ_MIN;
+        pfmr_data[idx]->cfg_data.high_band = FM_UE_FREQ_MAX;
+        pfmr_data[idx]->cfg_data.seek_space = FM_SPACE_100K;
+        pfmr_data[idx]->cfg_data.max_scan_num = FM_MAX_CHL_SIZE;
+        pfmr_data[idx]->cfg_data.seek_lev = FM_SEEKTH_LEVEL_DEFAULT;
+        pfmr_data[idx]->cfg_data.scan_sort = FM_SCAN_SORT_NON;
+        pfmr_data[idx]->cfg_data.short_ana_sup = true;
+        pfmr_data[idx]->cfg_data.rssi_th_l2 = 0;
+        pfmr_data[idx]->cfg_data.fake_chan = &no_fake_channels;
+        ret = 0;
     } else {
         *(void **) (&FMR_get_cfg(idx)) = dlsym(FMR_cust_hdler(idx), "CUST_get_cfg");
         if (FMR_get_cfg(idx) == NULL) {

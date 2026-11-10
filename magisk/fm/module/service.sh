@@ -18,7 +18,13 @@ sleep 5
     fi
   fi
   ls -lZ /dev/fm 2>&1
-  for p in RECORD_AUDIO WRITE_EXTERNAL_STORAGE READ_EXTERNAL_STORAGE POST_NOTIFICATIONS; do
-    pm grant com.android.fmradio android.permission.$p 2>&1 && echo "granted $p"
-  done
 } > "$LOG" 2>&1
+
+# pm hands its output file to Android's package service, which may not write to a file in
+# /data/adb (SELinux): with the log as its output every grant failed ("Failed transaction",
+# 0.1-experimental). So pm writes to /dev/null and only its result goes to the log.
+for p in RECORD_AUDIO WRITE_EXTERNAL_STORAGE READ_EXTERNAL_STORAGE POST_NOTIFICATIONS; do
+  pm grant com.android.fmradio android.permission.$p < /dev/null > /dev/null 2>&1
+  rc=$?
+  if [ $rc = 0 ]; then echo "grant $p: ok"; else echo "grant $p: failed ($rc)"; fi >> "$LOG"
+done
