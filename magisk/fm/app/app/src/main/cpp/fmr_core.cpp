@@ -598,6 +598,68 @@ int FMR_Restore_Search(int idx)
     return 0;
 }
 
+/*
+ * CMF Phone 1 build: stations the driver's test misses.
+ *
+ * The driver marks a channel "valid" only when every quality value passes fm_cust.cfg at once
+ * (RSSI, PAMD, MR, ATDC, PRX, soft-mute gain). Without an antenna on this phone that almost
+ * never happens: the first app scan found nothing, while fmscan's measurements (10 Nov 2026,
+ * nothing plugged in) showed stations standing well clear of the noise, 92.1 MHz 29 and
+ * 107.5 MHz 24 above the band's average RSSI, each with its 100 kHz neighbour lower, as a real
+ * transmitter looks. So every channel's RSSI is kept during the scan, and a channel that is a
+ * local peak at least FMR_PEAK_MARGIN above the band's average is added as a station too,
+ * unless one is already listed within one step. The list stays in frequency order.
+ */
+#define FMR_PEAK_CH_MAX 512
+#define FMR_PEAK_MARGIN 10
+
+static int FMR_add_peak_channels(struct fm_cqi *sort_data, int num, const fm_s32 *rssi,
+        const fm_bool *measured, int count, fm_u16 start_freq, fm_u8 seek_space)
+{
+    long sum = 0;
+    int n = 0, i, j;
+    for (i = 0; i < count; i++) {
+        if (measured[i]) {
+            sum += rssi[i];
+            n++;
+        }
+    }
+    if (n < 3) {
+        return num;
+    }
+    const fm_s32 average = (fm_s32)(sum / n);
+    for (i = 0; i < count && num < CQI_CH_NUM_MAX; i++) {
+        if (!measured[i] || rssi[i] < average + FMR_PEAK_MARGIN) {
+            continue;
+        }
+        if ((i > 0 && measured[i - 1] && rssi[i - 1] > rssi[i])
+                || (i + 1 < count && measured[i + 1] && rssi[i + 1] > rssi[i])) {
+            continue; /* not the top of its peak */
+        }
+        const fm_s32 freq = start_freq + seek_space * i;
+        fm_bool listed = fm_false;
+        for (j = 0; j < num; j++) {
+            if (sort_data[j].ch >= freq - seek_space && sort_data[j].ch <= freq + seek_space) {
+                listed = fm_true;
+                break;
+            }
+        }
+        if (listed) {
+            continue;
+        }
+        /* insert in frequency order */
+        for (j = num; j > 0 && sort_data[j - 1].ch > freq; j--) {
+            sort_data[j] = sort_data[j - 1];
+        }
+        sort_data[j].ch = freq;
+        sort_data[j].rssi = rssi[i];
+        sort_data[j].reserve = 1;
+        num++;
+        LOGI("peak channel added: [%d] rssi=%d average=%d\n", freq, rssi[i], average);
+    }
+    return num;
+}
+
 int FMR_scan_Channels(int idx, uint16_t *scan_tbl, int *max_cnt, fm_s32 band_channel_no, fm_u16 Start_Freq, fm_u8 seek_space, fm_u8 NF_Space)
 {
     fm_s32 ret = 0, Num = 0, i, j;
@@ -615,6 +677,11 @@ int FMR_scan_Channels(int idx, uint16_t *scan_tbl, int *max_cnt, fm_s32 band_cha
 #endif
 
     memset(SortData, 0, CQI_CH_NUM_MAX*sizeof(struct fm_cqi));
+    /* CMF Phone 1 build: every channel's RSSI, for the peak pass after the scan. */
+    static fm_s32 AllRssi[FMR_PEAK_CH_MAX];
+    static fm_bool Measured[FMR_PEAK_CH_MAX];
+    const int table_size = *max_cnt;
+    memset(Measured, 0, sizeof(Measured));
     LOGI("band_channel_no=[%d], seek_space=%d, start freq=%d\n", band_channel_no,seek_space,Start_Freq);
     for (i=0; i<band_channel_no; i++) {
         if (fmr_data.scan_stop == fm_true) {
@@ -629,6 +696,10 @@ int FMR_scan_Channels(int idx, uint16_t *scan_tbl, int *max_cnt, fm_s32 band_cha
             LOGE("soft mute tune, failed:[%d]\n",ret);
             LastExist = fm_false;
             continue;
+        }
+        if (i < FMR_PEAK_CH_MAX) {
+            AllRssi[i] = cur_freq.rssi;
+            Measured[i] = fm_true;
         }
         if (cur_freq.valid == fm_true)/*get valid channel*/ {
 #if (FMR_NOISE_FLOORT_DETECT==1)
@@ -707,6 +778,9 @@ int FMR_scan_Channels(int idx, uint16_t *scan_tbl, int *max_cnt, fm_s32 band_cha
 #endif
     }
     LOGI("get channel no.[%d] \n", Num);
+    Num = FMR_add_peak_channels(SortData, Num, AllRssi, Measured,
+            band_channel_no < FMR_PEAK_CH_MAX ? band_channel_no : FMR_PEAK_CH_MAX,
+            Start_Freq, seek_space);
     if (Num == 0)/*get nothing*/ {
         *max_cnt = 0;
         FMR_Restore_Search(idx);
@@ -739,7 +813,7 @@ int FMR_scan_Channels(int idx, uint16_t *scan_tbl, int *max_cnt, fm_s32 band_cha
     }
 
     ChannelNo = 0;
-    for (i=0; i<Num; i++) {
+    for (i=0; i<Num && (int)ChannelNo<table_size; i++) {
         if (SortData[i].reserve == 1) {
             SortData[i].ch /= 10;
 

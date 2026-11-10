@@ -1310,8 +1310,9 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                 String name = AudioSystem.getOutputDeviceName(type);
                 if (type == AudioSystem.DEVICE_IN_FM_TUNER) {
                     mAudioSource = (AudioDevicePort) port;
-                } else if (type == AudioSystem.DEVICE_OUT_WIRED_HEADSET ||
-                        type == AudioSystem.DEVICE_OUT_WIRED_HEADPHONE) {
+                } else if (type == mFmSinkType) {
+                    // CMF Phone 1 build: the output the media route uses now (found by
+                    // isPatchMixerToEarphone), not only wired earphones.
                     mAudioSink = (AudioDevicePort) port;
                 }
             }
@@ -1371,6 +1372,15 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                 }
                 if (isPatchMixerToEarphone(patches)) {
                     stopRender();
+                    // CMF Phone 1 build: the output changed (earphones in or out, a USB DAC):
+                    // move the hardware route to it.
+                    if (mAudioSink != null && mAudioSink.type() != mFmSinkType) {
+                        releaseAudioPatch();
+                        if (createAudioPatch() != AudioManager.SUCCESS) {
+                            Log.d(TAG, "onAudioPatchListUpdate: fallback as createAudioPatch failed");
+                            startRender();
+                        }
+                    }
                 } else {
                     releaseAudioPatch();
                     startRender();
@@ -1678,7 +1688,30 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
         }
     }
 
+    /**
+     * CMF Phone 1 build: the outputs the FM tuner reaches in hardware. The phone's audio policy
+     * routes "FM Tuner In" to Speaker, Wired Headset, Wired Headphones, USB Device Out and USB
+     * Headset Out (dumpsys media.audio_policy). The 2016 app built the hardware route only for
+     * wired earphones and played every other output by recording the tuner (AudioRecord,
+     * RADIO_TUNER) and playing it back; Android treats that as microphone use, which a
+     * foreground service started from the background may not have ("Foreground service started
+     * from background can not have ... microphone access", seen on the phone), so after
+     * reopening the app the speaker stayed silent.
+     */
+    private static boolean isFmSinkType(int type) {
+        return type == AudioSystem.DEVICE_OUT_SPEAKER
+                || type == AudioSystem.DEVICE_OUT_WIRED_HEADSET
+                || type == AudioSystem.DEVICE_OUT_WIRED_HEADPHONE
+                || type == AudioSystem.DEVICE_OUT_USB_DEVICE
+                || type == AudioSystem.DEVICE_OUT_USB_HEADSET;
+    }
+
+    /** The output found by the last isPatchMixerToEarphone() that returned true. */
+    private int mFmSinkType = AudioSystem.DEVICE_OUT_SPEAKER;
+
     // Make sure patches count will not be 0
+    // CMF Phone 1 build: true when media goes to exactly one output the tuner reaches in
+    // hardware (isFmSinkType), not only to wired earphones; that output is kept in mFmSinkType.
     private boolean isPatchMixerToEarphone(ArrayList<AudioPatch> patches) {
         int deviceCount = 0;
         int deviceEarphoneCount = 0;
@@ -1693,9 +1726,9 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
             if (sourcePort instanceof AudioMixPort && sinkPort instanceof AudioDevicePort) {
                 deviceCount++;
                 int type = ((AudioDevicePort) sinkPort).type();
-                if (type == AudioSystem.DEVICE_OUT_WIRED_HEADSET ||
-                        type == AudioSystem.DEVICE_OUT_WIRED_HEADPHONE) {
+                if (isFmSinkType(type)) {
                     deviceEarphoneCount++;
+                    mFmSinkType = type;
                 }
             }
         }
