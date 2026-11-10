@@ -95,6 +95,27 @@ earphones on the long one mean the antenna comes through the USB-C port; no stat
 
 ## Status
 
-- Not tested on the phone yet: the flash, the probe, `/dev/fm`.
-- The antenna is unknown. Nothing removed FM throughout, likely because the phone has no
-  headphone jack; reception may be weak or none.
+**Working on the phone (10 Nov 2026, vendor_boot `5da6a862...a8a8f3` flashed with `dd` from root,
+backup kept off the phone):**
+- The phone boots as before (Wi-Fi works, Magisk and the custom kernel untouched: Magisk is in
+  `init_boot`, the kernel in `boot`).
+- The driver, loaded with `insmod`, probes the node: `current compatible:mediatek,fm`,
+  `family-id:0x6983 host_id:0x6878 conn_id:0x0205 irq_num:507`, `fm_register_irq` without error,
+  `fm_cust.cfg` loaded, `fm_cdev_setup: alloc fm:458:0`; `/dev/fm` appears (`media:media 0660`).
+  (`FM-OF: no fm device node` is the optional `mediatek,fmradio` node for an external antenna
+  amplifier's pin, which this phone does not have.)
+- `fmscan`, nothing plugged in: chip `0x6631`, power-up `err 0`, all 206 frequencies measured on
+  both inputs, receiver off again. Band average -301 (raw); peaks at 92.1 MHz (-272 / -276),
+  107.5 MHz (-277), 96.1 MHz (-294), 99.8 MHz (-296), each spilling into its 100 kHz neighbour as a
+  real station does, the same on both inputs. They sit at the driver's station threshold (-296),
+  so it passes them only now and then: the receiver works, but with no antenna it only just hears
+  the strongest local stations.
+
+**Next**
+- Antenna through the headphone cable: the phone has an analog USB-C audio switch
+  (`mediatek,hl5280-audioswitch@42` in the board's dtbo) and MediaTek's headset detection
+  (`mt6369-accdet`), so wired headphones on a passive USB-C to 3.5 mm adapter (no DAC inside;
+  a USB DAC such as a Khadas is digital and is no antenna) should reach the long antenna input.
+  Test: `fmscan` again with them plugged in.
+- Listening: route the receiver's audio through Android's FM tuner input
+  (`AUDIO_DEVICE_IN_FM_TUNER`, declared in the phone's audio policy) to the speaker or headphones.
