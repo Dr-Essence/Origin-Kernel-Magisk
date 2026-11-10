@@ -77,9 +77,21 @@ The driver should log `mt_fm_probe`, `current compatible:mediatek,fm` and
 `family-id:0x6983 host_id:0x6878 conn_id:0x0205 irq_num:...`, and `/dev/fm` should appear
 (owner `media`, from `ueventd.rc`). A reboot unloads the driver.
 
-Next: a small tool that powers the receiver on through `/dev/fm`, scans 87.5-108 MHz and
-prints each station's signal, once with nothing plugged in and once with wired USB-C earphones:
-that answers whether there is an antenna.
+Then the antenna test, with `fmscan` (in the same artifact): it switches the receiver on through
+`/dev/fm` with the driver's own commands, measures every frequency from 87.5 to 108 MHz on the
+long antenna input (the earphone cable on phones with a jack) and on the short one (inside the
+phone), prints the strongest 15 of each and which pass the driver's station test, and switches the
+receiver off again (also on Ctrl-C). Nothing is played.
+
+```
+cp fmscan /data/local/tmp/ && chmod 755 /data/local/tmp/fmscan
+su -c /data/local/tmp/fmscan                 # nothing plugged in
+su -c /data/local/tmp/fmscan                 # again with wired USB-C earphones in
+```
+
+Reading it: stations on the short antenna mean an antenna inside the phone; stations only with
+earphones on the long one mean the antenna comes through the USB-C port; no station either way
+(all values close to the band's average) means no usable antenna.
 
 ## Status
 
