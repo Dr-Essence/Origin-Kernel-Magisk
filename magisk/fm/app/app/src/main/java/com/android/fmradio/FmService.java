@@ -1714,7 +1714,8 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
     // hardware (isFmSinkType), not only to wired earphones; that output is kept in mFmSinkType.
     private boolean isPatchMixerToEarphone(ArrayList<AudioPatch> patches) {
         int deviceCount = 0;
-        int deviceEarphoneCount = 0;
+        int sinkType = 0;
+        boolean mixedSinks = false;
         for (AudioPatch patch : patches) {
             AudioPortConfig[] sources = patch.sources();
             AudioPortConfig[] sinks = patch.sinks();
@@ -1724,15 +1725,27 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
             AudioPort sinkPort = sinkConfig.port();
             Log.d(TAG, "isPatchMixerToEarphone " + sourcePort + " ====> " + sinkPort);
             if (sourcePort instanceof AudioMixPort && sinkPort instanceof AudioDevicePort) {
-                deviceCount++;
                 int type = ((AudioDevicePort) sinkPort).type();
-                if (isFmSinkType(type)) {
-                    deviceEarphoneCount++;
-                    mFmSinkType = type;
+                if (!isFmSinkType(type)) {
+                    // CMF Phone 1 build: a route to a device the tuner never plays to, such as
+                    // MediaTek's always-open telephony_tx, says nothing about where media goes.
+                    continue;
                 }
+                if (deviceCount == 0) {
+                    sinkType = type;
+                } else if (type != sinkType) {
+                    mixedSinks = true;
+                }
+                deviceCount++;
             }
         }
-        if (deviceEarphoneCount == 1 && deviceCount == deviceEarphoneCount) {
+        // CMF Phone 1 build: the 2016 test wanted exactly one mixer route in all. The phone has
+        // several at once (four media streams to the speaker and one to telephony_tx, seen in
+        // its log), so the test always failed and the app recorded the tuner instead. Now:
+        // every route to a tuner-reachable output goes to the same one.
+        if (deviceCount > 0 && !mixedSinks) {
+            mFmSinkType = sinkType;
+            Log.d(TAG, "isPatchMixerToEarphone: hardware route to output type " + sinkType);
             return true;
         }
         return false;
