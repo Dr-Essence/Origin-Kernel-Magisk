@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FM Radio (com.android.fmradio) on the CMF Phone 1.
+  - The privileged permissions the app asks for, all of them: with an enforced allowlist,
+    Android does not boot when a privileged app asks for one that is not listed.
+  - ACCESS_FM_RADIO gives the media group, as in AOSP's platform.xml (Nothing removed that line):
+    /dev/fm belongs to media:media, mode 0660.
+-->
+<permissions>
+    <privapp-permissions package="com.android.fmradio">
+        <permission name="android.permission.ACCESS_FM_RADIO"/>
+        <permission name="android.permission.CAPTURE_TUNER_AUDIO_INPUT"/>
+        <permission name="android.permission.MODIFY_AUDIO_ROUTING"/>
+    </privapp-permissions>
+
+    <permission name="android.permission.ACCESS_FM_RADIO">
+        <group gid="media"/>
+    </permission>
+</permissions>

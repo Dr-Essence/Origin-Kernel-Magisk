@@ -1,0 +1,5 @@
+This folder is MediaTek's FM Radio app from the Android Open Source Project
+(https://android.googlesource.com/platform/packages/apps/FMRadio, commit de8025e),
+Copyright (C) 2014 The Android Open Source Project, licensed under the Apache License 2.0
+(http://www.apache.org/licenses/LICENSE-2.0), with the changes listed in ../README.md
+("FM Radio app"). The changed and added files say so in their comments.

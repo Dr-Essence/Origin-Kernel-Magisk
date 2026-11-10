@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+// MediaTek's FM Radio app (AOSP packages/apps/FMRadio), built outside the Android source tree
+// for the CMF Phone 1. It uses hidden framework APIs (AudioSystem, AudioPatch, audio ports), so
+// it is compiled against an android.jar that has them (the workflow puts it in place of the SDK's
+// platforms/android-35/android.jar) and lifts the runtime restriction with HiddenApiBypass.
+android {
+    namespace 'com.android.fmradio'
+    compileSdk 35
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'com.android.fmradio'
+        minSdk 31
+        // Kept low on purpose: the 2016 code predates notification channels being mandatory
+        // and foreground-service types. It is a privileged system app, not a store app.
+        targetSdk 28
+        versionCode 1
+        versionName '1.0-cmf1'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path 'src/main/cpp/CMakeLists.txt' }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1'
+}

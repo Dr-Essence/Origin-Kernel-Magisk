@@ -1,0 +1,6 @@
+id=cmf_fm_radio
+name=FM Radio (CMF Phone 1)
+version=0.1-experimental
+versionCode=1
+author=Dr-Essence
+description=MediaTek's FM Radio app and driver for the CMF Phone 1. Needs the FM vendor_boot (Origin-Kernel-Magisk, magisk/fm).

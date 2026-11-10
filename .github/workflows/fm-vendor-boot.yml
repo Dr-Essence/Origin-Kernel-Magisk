@@ -1,7 +1,8 @@
 name: FM radio vendor_boot
 
-# The CMF Phone 1's stock vendor_boot with the FM radio's device-tree node put back
-# (magisk/fm/README.md). Only the device tree changes; the kernel is not rebuilt.
+# The CMF Phone 1's FM radio (magisk/fm/README.md): the stock vendor_boot with the FM
+# device-tree node put back (only the device tree changes; the kernel is not rebuilt), the fmscan
+# test tool, and the FM Radio app as a Magisk module.
 
 on:
   push:
@@ -10,6 +11,10 @@ on:
   workflow_dispatch:
 
 env:
+  # android.jar with the hidden framework APIs the FM app uses (AudioSystem, AudioPatch, audio
+  # ports), from Reginer/aosp-android-jar at a fixed commit, checked by its hash.
+  HIDDEN_JAR_URL: https://raw.githubusercontent.com/Reginer/aosp-android-jar/262f6ae931160011572a5adfe4ec6302585e8f60/android-35/android.jar
+  HIDDEN_JAR_SHA256: 60be6880d7b2b526d654460d4ce6fa81bf23efaa28b02d901d0b63a01ccf4671
   STOCK_BUILD: Tetris_B4.1-260615-1652
   STOCK_URL: https://github.com/spike0en/nothing_archive/releases/download/Tetris_B4.1-260615-1652
   STOCK_VENDOR_BOOT_SHA256: 9e55fe1a7eb64ef3cf0fc802180c4d260b4a9d53ad5b2f59847343d581c68b44
@@ -65,6 +70,40 @@ jobs:
           $CC -O2 -Wall -Wextra -Werror -static -s -o out/fmscan magisk/fm/fmscan.c
           file out/fmscan
           sha256sum out/fmscan | tee -a out/sha256.txt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+
+      - name: SDK for the FM app (platform 35 with hidden APIs, NDK 27)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" \
+            "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+          curl -fsSL -o hidden.jar "$HIDDEN_JAR_URL"
+          echo "$HIDDEN_JAR_SHA256  hidden.jar" | sha256sum -c
+          cp hidden.jar "$ANDROID_HOME/platforms/android-35/android.jar"
+
+      - name: FM Radio app
+        run: |
+          cd magisk/fm/app
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          gradle --no-daemon assembleRelease
+          mkdir -p ../module/system/priv-app/FMRadio
+          cp app/build/outputs/apk/release/app-release.apk ../module/system/priv-app/FMRadio/FMRadio.apk
+
+      - name: Magisk module
+        run: |
+          cd magisk/fm/module
+          zip -qr9 ../../../out/fm-radio-module.zip .
+          cd ../../..
+          unzip -l out/fm-radio-module.zip
+          sha256sum out/fm-radio-module.zip | tee -a out/sha256.txt
 
       - uses: actions/upload-artifact@v4
         with:

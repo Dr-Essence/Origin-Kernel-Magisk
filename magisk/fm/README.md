@@ -93,6 +93,47 @@ Reading it: stations on the short antenna mean an antenna inside the phone; stat
 earphones on the long one mean the antenna comes through the USB-C port; no station either way
 (all values close to the band's average) means no usable antenna.
 
+## FM Radio app (Magisk module)
+
+`fm-radio-module.zip` in the same artifact: MediaTek's own FM Radio app (AOSP
+`packages/apps/FMRadio`, the app written for this driver), built outside the Android source tree
+(`magisk/fm/app`) and installed systemlessly as a privileged app. It scans, shows station names
+(RDS), records, and plays through the speaker, wired headphones or a USB DAC.
+
+What the phone already has, read from it (10 Nov 2026): the audio HAL's FM controller
+(`AudioALSAFMController` in `audio.primary.mt6878.so`), the FM tuner input in the audio policy
+(`AUDIO_DEVICE_IN_FM_TUNER`, routed to Speaker, Wired Headset, Wired Headphones, USB Device Out
+and USB Headset Out), and `/dev/fm`'s SELinux label (`fm_device`). Nothing removed the app, its
+library and one line of `platform.xml`.
+
+Changes from AOSP, each for a reason found here:
+
+| Change | Why |
+| --- | --- |
+| `fm_tune_parm` has `deemphasis`, as in the phone's driver | the 2016 app sent the old 6-byte form; the driver reads 8 bytes and guesses the form from the frequency, which stray bytes could fool |
+| RDS group counters `uint32_t`, not `unsigned long` | 64-bit on arm64, so the app's RDS buffer was bigger than the driver's and every RDS read was refused |
+| `layout_check.cpp` | the driver's structures (MediaTek's `fm_main.h`, `fm_rds.h`) next to the app's: the build fails if any size or field offset differs (it does fail with the 2016 header) |
+| a notification channel | the playing notification starts a foreground service, which a notification without a channel stops |
+| no location, mount or phone-state permissions | not needed; the location check before a scan is skipped instead of crashing |
+| `HiddenApiBypass` | the app uses hidden audio APIs (AudioPatch, AudioSystem); AOSP built it with the platform key |
+| logging through `android/log.h` | builds with the NDK instead of AOSP's `libcutils` |
+
+The module adds:
+- the app in `/system/priv-app/FMRadio` (systemless);
+- `privapp-permissions-fmradio.xml`: the three privileged permissions the app asks for
+  (`ACCESS_FM_RADIO`, `CAPTURE_TUNER_AUDIO_INPUT`, `MODIFY_AUDIO_ROUTING`). All of them must be
+  listed: the phone enforces the allowlist (`ro.control_privapp_permissions=enforce`), and Android
+  does not start when a privileged app asks for one that is not. It also gives `ACCESS_FM_RADIO`
+  the `media` group, as AOSP's `platform.xml` does (`/dev/fm` is `media:media 0660`);
+- `sepolicy.rule`: `priv_app` may open, read, write and ioctl `fm_device`, nothing else;
+- `service.sh`: loads the FM driver after boot and grants the runtime permissions the 2016 code
+  never asks for (recording audio, storage, notifications). Its log: `/data/adb/modules/cmf_fm_radio/fm.log`.
+
+It refuses to install on another phone, or without the FM vendor_boot.
+
+To remove it: remove the module in Magisk and reboot. If the phone ever stops at boot with it:
+hold Volume Down during boot (Magisk's safe mode starts with every module off), then remove it.
+
 ## Status
 
 **Working on the phone (10 Nov 2026, vendor_boot `5da6a862...a8a8f3` flashed with `dd` from root,
@@ -117,5 +158,5 @@ backup kept off the phone):**
   (`mt6369-accdet`), so wired headphones on a passive USB-C to 3.5 mm adapter (no DAC inside;
   a USB DAC such as a Khadas is digital and is no antenna) should reach the long antenna input.
   Test: `fmscan` again with them plugged in.
-- Listening: route the receiver's audio through Android's FM tuner input
-  (`AUDIO_DEVICE_IN_FM_TUNER`, declared in the phone's audio policy) to the speaker or headphones.
+- Listening: the FM Radio module (built and checked here: structures match the driver, the APK
+  has its native library uncompressed for a system app; not yet run on the phone).

@@ -1,0 +1,3 @@
+# The FM app is a privileged app (priv_app); /dev/fm is labeled fm_device by MediaTek's
+# file_contexts. Only this device, only what the app does with it.
+allow priv_app fm_device chr_file { open read write ioctl getattr }
