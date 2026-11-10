@@ -1,0 +1,60 @@
+name: FM radio vendor_boot
+
+# The CMF Phone 1's stock vendor_boot with the FM radio's device-tree node put back
+# (magisk/fm/README.md). Only the device tree changes; the kernel is not rebuilt.
+
+on:
+  push:
+    branches: [tetris-magisk]
+    paths: ['magisk/fm/**', '.github/workflows/fm-vendor-boot.yml']
+  workflow_dispatch:
+
+env:
+  STOCK_BUILD: Tetris_B4.1-260615-1652
+  STOCK_URL: https://github.com/spike0en/nothing_archive/releases/download/Tetris_B4.1-260615-1652
+  STOCK_VENDOR_BOOT_SHA256: 9e55fe1a7eb64ef3cf0fc802180c4d260b4a9d53ad5b2f59847343d581c68b44
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full device-tree-compiler
+
+      - name: Stock vendor_boot of the phone's build
+        run: |
+          mkdir -p stock && cd stock
+          curl -fsSL -o boot.7z "$STOCK_URL/$STOCK_BUILD-image-boot.7z"
+          7z x -y boot.7z vendor_boot.img > /dev/null
+          echo "$STOCK_VENDOR_BOOT_SHA256  vendor_boot.img" | sha256sum -c
+
+      - name: Add the fm node
+        run: |
+          mkdir -p out
+          python3 magisk/fm/fm_dtb.py patch stock/vendor_boot.img out/fm-vendor_boot.img
+          python3 magisk/fm/fm_dtb.py check stock/vendor_boot.img out/fm-vendor_boot.img
+
+      - name: Independent check with dtc
+        run: |
+          python3 magisk/fm/fm_dtb.py dump stock/vendor_boot.img stock.dtb
+          python3 magisk/fm/fm_dtb.py dump out/fm-vendor_boot.img new.dtb
+          dtc -I dtb -O dts -q -o stock.dts stock.dtb
+          dtc -I dtb -O dts -q -o new.dts new.dtb
+          diff stock.dts new.dts > out/dts.diff || true
+          cat out/dts.diff
+          # Exactly the eight added lines of the fm node, nothing removed or changed.
+          test "$(grep -c '^>' out/dts.diff)" = 8
+          test "$(grep -c '^<' out/dts.diff)" = 0
+          grep -q 'compatible = "mediatek,fm";' out/dts.diff
+          grep -q 'interrupts = <0x00 0x1e6 0x04 0x00>;' out/dts.diff
+          sha256sum stock/vendor_boot.img out/fm-vendor_boot.img | tee out/sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm-vendor-boot
+          path: out/

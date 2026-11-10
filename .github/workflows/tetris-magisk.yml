@@ -8,7 +8,7 @@ name: Tetris Magisk kernel
 on:
   push:
     branches: [tetris-magisk]
-    paths: ['magisk/**', '.github/workflows/tetris-magisk.yml']
+    paths: ['magisk/**', '!magisk/fm/**', '.github/workflows/tetris-magisk.yml']
   workflow_dispatch:
 
 env:
