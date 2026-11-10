@@ -59,6 +59,11 @@ itself, as root) and the way back: [`magisk/fm/README.md`](magisk/fm/README.md).
 
 ## Credits
 
+- **Nothing**, for phones that can be opened up: an unlockable bootloader, and the kernel and
+  device sources published as [NothingOSS](https://github.com/NothingOSS). Without them neither
+  this kernel's checks nor the FM radio's device-tree values would exist. (Independent project,
+  not made or endorsed by Nothing.)
+
 - **Origin Kernel**: [samakshkambxj](https://github.com/samakshkambxj/origin-kernel), and the
   projects it credits (Sultan kernels, CASS and the rest; see its README)
 - **Magisk**: [topjohnwu](https://github.com/topjohnwu/Magisk)
