@@ -115,6 +115,7 @@ Changes from AOSP, each for a reason found here:
 | `layout_check.cpp` | the driver's structures (MediaTek's `fm_main.h`, `fm_rds.h`) next to the app's: the build fails if any size or field offset differs (it does fail with the 2016 header) |
 | a notification channel | the playing notification starts a foreground service, which a notification without a channel stops |
 | no location, mount or phone-state permissions | not needed; the location check before a scan is skipped instead of crashing |
+| FM without wired earphones | the 2016 app refused to switch on unless `isWiredHeadsetOn()`; the receiver hears stations without them (fmscan), and a USB DAC is not a wired headset. Wired earphones now select the long antenna input and taking them out the short one (`FM_IOCTL_ANA_SWITCH`, which the 2016 app never actually called); taking them out still stops playback, as Android apps do |
 | `HiddenApiBypass` | the app uses hidden audio APIs (AudioPatch, AudioSystem); AOSP built it with the platform key |
 | logging through `android/log.h` | builds with the NDK instead of AOSP's `libcutils` |
 

@@ -353,7 +353,11 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
      * @return true, antenna available; false, antenna not available
      */
     public boolean isAntennaAvailable() {
-        return mAudioManager.isWiredHeadsetOn();
+        // CMF Phone 1 build: the receiver also hears stations with nothing plugged in, on its
+        // short (on-board) antenna input (fmscan, 10 Nov 2026), and a USB DAC is not a wired
+        // headset; so FM is never refused for lack of wired earphones. Wired earphones still
+        // select the long antenna input (MSGID_SWITCH_ANTENNA).
+        return true;
     }
 
     private void setForceUse(boolean isSpeaker) {
@@ -1902,7 +1906,7 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
      * 2. Without headset -> show plug in earphone tips
      */
     private void checkState() {
-        if (isHeadSetIn()) {
+        if (isAntennaAvailable()) {
             // with headset
             if (mPowerStatus == POWER_UP) {
                 resumeFmAudio();
@@ -2376,6 +2380,11 @@ public class FmService extends Service implements FmRecorder.OnRecorderStateChan
                 case FmListener.MSGID_SWITCH_ANTENNA:
                     bundle = msg.getData();
                     int value = bundle.getInt(FmListener.SWITCH_ANTENNA_VALUE);
+                    // CMF Phone 1 build: actually select the input (0: long, the earphone
+                    // cable; 1: short, on the board). The 2016 code only changed the screen.
+                    switchAntenna(value);
+                    // Never show the "plug in earphones" screen: FM works without them here.
+                    value = 0;
 
                     // if ear phone insert, need dismiss plugin earphone
                     // dialog

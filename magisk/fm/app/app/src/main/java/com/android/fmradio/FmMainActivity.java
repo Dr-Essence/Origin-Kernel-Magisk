@@ -852,7 +852,8 @@ public class FmMainActivity extends Activity implements FmFavoriteEditDialog.Edi
      * @return true or false indicate antenna available or not
      */
     private boolean isAntennaAvailable() {
-        return mAudioManager.isWiredHeadsetOn();
+        // CMF Phone 1 build: see FmService.isAntennaAvailable().
+        return true;
     }
 
     /**
